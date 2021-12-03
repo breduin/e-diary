@@ -145,12 +145,65 @@ def dance_everybody(*args):
         _fix_marks(kid['id'])
 
 
-commands_functions = {
-    'make_good_points': fix_marks,
-    'create_commendation': create_commendation,
-    'remove_chastisements': remove_chastisements,
-    'dance_everybody!': dance_everybody
+commands = {
+    'make_good_points': {
+        'function': fix_marks,
+        'args_number': 1,
+        },
+    'create_commendation': {
+        'function': create_commendation,
+        'args_number': 3,
+        },
+    'remove_chastisements': {
+        'function': remove_chastisements,
+        'args_number': 1,
+        },
+    'dance_everybody!': {
+        'function': dance_everybody,
+        'args_number': 0,
+        },
 }
+
+
+def _validate__func():
+    """Валидировать функцию (команду)."""
+    try:
+        func = commands[sys.argv[1]]['function']
+    except KeyError:
+        print('Такой команды нет. Вот список доступных команд:')
+        for command in commands.keys():
+            print(command)
+        return None
+    except IndexError:
+        print('Похоже, ты не указал ни одной команды. Смотри, есть вот такие:')
+        for command in commands.keys():
+            print(command)
+        return None
+    return func
+
+
+def _validate_args():
+    """Валидировать аргументы."""
+    args = [arg.strip() for arg in sys.argv[2:]]
+    required_number_of_arguments = commands[sys.argv[1]]['args_number']
+    if len(args) < required_number_of_arguments:
+        print('Маловато аргументов.')
+        print(
+            f'Для команды {sys.argv[1]} их {required_number_of_arguments}.'
+            )
+        return None
+
+    if not all([bool(len(arg)) for arg in args]):
+        print('Пустые строки в качестве аргументов не подходят. Заполни их.')
+        return None
+    return args
+
+
+def get_validated_func_args():
+    """Получить валидированную функцию и аргументы."""
+    if not _validate__func():
+        return None, None
+    return _validate__func(), _validate_args()
 
 
 if __name__ == '__main__':
@@ -162,18 +215,16 @@ if __name__ == '__main__':
     from datacenter.models import Schoolkid, Mark, Chastisement
     from datacenter.models import Subject, Lesson, Commendation
 
-    try:
-        func = commands_functions[sys.argv[1]]
-    except KeyError:
-        print('Такой команды нет. Вот список доступных команд:')
-        for command in commands_functions.keys():
-            print(command)
+    func, args = get_validated_func_args()
+
+    if not all([func, args]):
         exit()
+
     max_number_of_arguments = 4
-    args = sys.argv[2:]
     args.extend(
         [None] * (
             max_number_of_arguments - len(sys.argv[2:])
             )
         )
+
     func(*args)
