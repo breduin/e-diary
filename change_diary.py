@@ -1,14 +1,14 @@
 """Внесение правок в базу данных электронного дневника."""
 import os
-import sys
 import random
 import django
+import argparse
 
 
-def _get_schoolkid(kid_name: str):
+def _get_schoolkid(name: str):
     """Получить объект ученика по имени."""
     try:
-        schoolkid = Schoolkid.objects.get(full_name__icontains=kid_name)
+        schoolkid = Schoolkid.objects.get(full_name__icontains=name)
     except Schoolkid.MultipleObjectsReturned:
         print('С таким именем есть несколько учеников. Уточни имя.')
         return None
@@ -18,10 +18,10 @@ def _get_schoolkid(kid_name: str):
     return schoolkid
 
 
-def _fix_marks(kid_id: int):
+def fix_marks(schoolkid):
     """Исправить оценки 2 и 3 на 5 для schoolkid с ID=kid_id."""
     bad_marks = Mark.objects.filter(
-        schoolkid__id=kid_id,
+        schoolkid=schoolkid,
         points__in=[2, 3],
         )
 
@@ -31,18 +31,13 @@ def _fix_marks(kid_id: int):
         marks_to_update.append(mark)
 
     Mark.objects.bulk_update(marks_to_update, ['points'])
+    return True
 
 
-def fix_marks(kid_name: str, *args):
-    """Исправить оценки 2 и 3 на 5 для schoolkid с именем kid_name."""
-    schoolkid = _get_schoolkid(kid_name) or exit()
-    _fix_marks(schoolkid.id)
-
-
-def remove_chastisements(kid_name, *args):
+def remove_chastisements(schoolkid):
     """Удалить замечания для schoolkid."""
-    schoolkid = _get_schoolkid(kid_name) or exit()
     Chastisement.objects.filter(schoolkid=schoolkid).delete()
+    return True
 
 
 def _get_random_commendation():
@@ -82,7 +77,9 @@ def _get_random_commendation():
     return random.choice(commendations)
 
 
-def _get_subject(subject_title: str, year_of_study: int):
+def _get_subject(subject_title: str,
+                 year_of_study: int
+                 ):
     """Получить объект предмета (школьной дисциплины)."""
     try:
         subject = Subject.objects.get(
@@ -94,33 +91,29 @@ def _get_subject(subject_title: str, year_of_study: int):
             f"""Такого предмета в {year_of_study}-м классе нет.
                 Уточни название."""
                 )
-        exit()
+        return None
     return subject
 
 
 def create_commendation(
-        kid_name: str,
-        subject_title: str,
-        which_lesson: str,
-        text: str,
-        *args):
+        schoolkid,
+        subject,
+        lesson: str,
+        text=None,
+        ):
     """Создать похвалу для ученика по предмету.
 
     Параметры:
-    kid_name -- имя ученика;
+    kid_id -- ID ученика;
     subject_title -- название предмета;
-    text -- текст похвалы. Если не задан, то выбирается случайно;
-    which_lesson -- random/last - для записи похвалы выбирается
+    lesson -- random/last - для записи похвалы выбирается
     случайный/последний урок.
+    text -- текст похвалы. Если не задан, то выбирается случайно;
     """
-
-    schoolkid = _get_schoolkid(kid_name) or exit()
 
     year_of_study = schoolkid.year_of_study
 
-    subject = _get_subject(subject_title, year_of_study)
-
-    order_lessons_by = 'date' if which_lesson.lower() == 'last' else '?'
+    order_lessons_by = 'date' if lesson == 'last' else '?'
     lesson = Lesson.objects.filter(
         year_of_study=year_of_study,
         group_letter=schoolkid.group_letter,
@@ -136,74 +129,14 @@ def create_commendation(
         text=text,
         subject=subject
         )
-    return
+    return True
 
 
-def dance_everybody(*args):
-    kids = Schoolkid.objects.all().values('id')
+def dance_everybody():
+    kids = Schoolkid.objects.all()
     for kid in kids:
-        _fix_marks(kid['id'])
-
-
-commands = {
-    'make_good_points': {
-        'function': fix_marks,
-        'args_number': 1,
-        },
-    'create_commendation': {
-        'function': create_commendation,
-        'args_number': 3,
-        },
-    'remove_chastisements': {
-        'function': remove_chastisements,
-        'args_number': 1,
-        },
-    'dance_everybody!': {
-        'function': dance_everybody,
-        'args_number': 0,
-        },
-}
-
-
-def _validate__func():
-    """Валидировать функцию (команду)."""
-    try:
-        func = commands[sys.argv[1]]['function']
-    except KeyError:
-        print('Такой команды нет. Вот список доступных команд:')
-        for command in commands.keys():
-            print(command)
-        return None
-    except IndexError:
-        print('Похоже, ты не указал ни одной команды. Смотри, есть вот такие:')
-        for command in commands.keys():
-            print(command)
-        return None
-    return func
-
-
-def _validate_args():
-    """Валидировать аргументы."""
-    args = [arg.strip() for arg in sys.argv[2:]]
-    required_number_of_arguments = commands[sys.argv[1]]['args_number']
-    if len(args) < required_number_of_arguments:
-        print('Маловато аргументов.')
-        print(
-            f'Для команды {sys.argv[1]} их {required_number_of_arguments}.'
-            )
-        return None
-
-    if not all([bool(len(arg)) for arg in args]):
-        print('Пустые строки в качестве аргументов не подходят. Заполни их.')
-        return None
-    return args
-
-
-def get_validated_func_args():
-    """Получить валидированную функцию и аргументы."""
-    if not _validate__func():
-        return None, None
-    return _validate__func(), _validate_args()
+        fix_marks(kid)
+    return True
 
 
 if __name__ == '__main__':
@@ -215,16 +148,80 @@ if __name__ == '__main__':
     from datacenter.models import Schoolkid, Mark, Chastisement
     from datacenter.models import Subject, Lesson, Commendation
 
-    func, args = get_validated_func_args()
+    commands = {
+        'make_good_points': {
+            'function': fix_marks,
+            'args': ['name', ],
+            },
+        'create_commendation': {
+            'function': create_commendation,
+            'args': ['name', 'subject', 'lesson'],
+            },
+        'remove_chastisements': {
+            'function': remove_chastisements,
+            'args': ['name', ],
+            },
+        'dance_everybody!': {
+            'function': dance_everybody,
+            'args': [],
+            },
+        }
 
-    if not all([func, args]):
-        exit()
-
-    max_number_of_arguments = 4
-    args.extend(
-        [None] * (
-            max_number_of_arguments - len(sys.argv[2:])
-            )
+    subjects = list(
+        Subject.objects.all().distinct().values_list('title', flat=True)
         )
 
-    func(*args)
+    parser = argparse.ArgumentParser(description='Исправь дневник!')
+    parser.add_argument('command',
+                        choices=commands.keys(),
+                        help='укажи команду скрипта',
+                        )
+    parser.add_argument('--name',
+                        help='укажи имя в кавычках',
+                        )
+    parser.add_argument('--subject',
+                        help='укажи школьный предмет в кавычках',
+                        choices=subjects,
+                        )
+    parser.add_argument('--lesson',
+                        help='укажи, к какому уроку привязать похвалу',
+                        choices=['last', 'random'],
+                        )
+    parser.add_argument('--text',
+                        help='напиши текст похвалы в кавычках',
+                        )
+    args = parser.parse_args()
+
+    command = args.command
+
+    func = commands[command]['function']
+    required_args = commands[command]['args']
+    check_required_args_in_request = [
+        bool(vars(args)[arg]) for arg in required_args
+        ]
+
+    if not all(check_required_args_in_request):
+        print('''Не все аргументы указаны.проверь запрос
+        и запусти скрипт ещё раз.''')
+        exit()
+    kwargs = {arg: vars(args)[arg] for arg in required_args}
+
+    if 'name' in required_args:
+        schoolkid = _get_schoolkid(args.name)
+        if not schoolkid:
+            exit()
+        del kwargs['name']
+        kwargs['schoolkid'] = schoolkid
+
+    if 'subject' in required_args:
+        school_subject = _get_subject(args.subject, schoolkid.year_of_study)
+        if not school_subject:
+            exit()
+        kwargs['subject'] = school_subject
+
+    if command == 'create_commendation' and args.text:
+        kwargs['text'] = args.text
+
+    result = func(**kwargs)
+    if result:
+        print('Ок, сделано.')
